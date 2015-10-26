@@ -6,6 +6,7 @@ use InvalidArgumentException;
 use Luracast\Restler\Data\ApiMethodInfo;
 use Luracast\Restler\Data\ValidationInfo;
 use Luracast\Restler\Data\Validator;
+use Luracast\Restler\Data\Response\HeaderKey;
 use Luracast\Restler\Format\iFormat;
 use Luracast\Restler\Format\iDecodeStream;
 use Luracast\Restler\Format\UrlEncodedFormat;
@@ -199,6 +200,9 @@ class Restler extends EventDispatcher
      */
     protected $responseData;
 
+    /** @var \Luracast\Restler\Data\Response\Header */
+    protected $headerData;
+
     /**
      * Constructor
      *
@@ -225,6 +229,8 @@ class Restler extends EventDispatcher
         if ($productionMode && $refreshCache) {
             $this->cached = false;
         }
+
+        $this->headerData = new \Luracast\Restler\Data\Response\Header();
     }
 
     /**
@@ -233,6 +239,7 @@ class Restler extends EventDispatcher
      *
      * @throws Exception     when the api service class is missing
      * @throws RestException to send error response
+     * @return \Luracast\Restler\Data\Response\Response|null
      */
     public function handle()
     {
@@ -258,7 +265,11 @@ class Restler extends EventDispatcher
                     $this->responseFormat = $this->negotiateResponseFormat();
                 $this->route();
             } catch (Exception $e) {
-                $this->negotiate();
+                $response = $this->negotiate();
+                if(!is_null($response))
+                {
+                    return $response;
+                }
                 if (!$e instanceof RestException) {
                     $e = new RestException(
                         500,
@@ -269,7 +280,11 @@ class Restler extends EventDispatcher
                 }
                 throw $e;
             }
-            $this->negotiate();
+            $response = $this->negotiate();
+            if(!is_null($response))
+            {
+                return $response;
+            }
             $this->preAuthFilter();
             $this->authenticate();
             $this->postAuthFilter();
@@ -278,12 +293,12 @@ class Restler extends EventDispatcher
             $this->call();
             $this->compose();
             $this->postCall();
-            $this->respond();
+            return $this->respond();
         } catch (Exception $e) {
             try{
-                $this->message($e);
+                return $this->message($e);
             } catch (Exception $e2) {
-                $this->message($e2);
+                return $this->message($e2);
             }
         }
     }
@@ -625,16 +640,25 @@ class Restler extends EventDispatcher
      *  - media type
      *  - charset
      *  - language
+     * @return \Luracast\Restler\Data\Response\Response|null
      */
     protected function negotiate()
     {
         $this->dispatch('negotiate');
-        $this->negotiateCORS();
+        $response = $this->negotiateCORS();
+        if(!is_null($response))
+        {
+            return $response;
+        }
         $this->responseFormat = $this->negotiateResponseFormat();
         $this->negotiateCharset();
         $this->negotiateLanguage();
+        return null;
     }
 
+    /**
+     * @return \Luracast\Restler\Data\Response\Response|null
+     */
     protected function negotiateCORS()
     {
         if (
@@ -642,19 +666,17 @@ class Restler extends EventDispatcher
             && Defaults::$crossOriginResourceSharing
         ) {
             if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_METHOD']))
-                header('Access-Control-Allow-Methods: '
-                    . Defaults::$accessControlAllowMethods);
+                $this->headerData->set(new HeaderKey('Access-Control-Allow-Methods',Defaults::$accessControlAllowMethods));
 
             if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']))
-                header('Access-Control-Allow-Headers: '
-                    . $_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']);
+                $this->headerData->set(new HeaderKey('Access-Control-Allow-Headers',$_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']));
 
-            header('Access-Control-Allow-Origin: ' .
-                (Defaults::$accessControlAllowOrigin == '*' ? $_SERVER['HTTP_ORIGIN'] : Defaults::$accessControlAllowOrigin));
-            header('Access-Control-Allow-Credentials: true');
+            $this->headerData->set(new HeaderKey('Access-Control-Allow-Origin',(Defaults::$accessControlAllowOrigin == '*' ? $_SERVER['HTTP_ORIGIN'] : Defaults::$accessControlAllowOrigin)));
+            $this->headerData->set(new HeaderKey('Access-Control-Allow-Credentials','true'));
 
-            exit(0);
+            return new \Luracast\Restler\Data\Response\Response('',$this->headerData);
         }
+        return null;
     }
 
     // ==================================================================
@@ -717,7 +739,7 @@ class Restler extends EventDispatcher
                     $format->setMIME($accept);
                     //echo "MIME $accept";
                     // Tell cache content is based on Accept header
-                    @header('Vary: Accept');
+                    $this->headerData->set(new HeaderKey('Vary','Accept'));
 
                     return $format;
                 } elseif (false !== ($index = strrpos($accept, '+'))) {
@@ -738,7 +760,7 @@ class Restler extends EventDispatcher
                                 $format->setExtension($extension);
                                 // echo "Extension $extension";
                                 Defaults::$useVendorMIMEVersioning = true;
-                                @header('Vary: Accept');
+                                $this->headerData->set(new HeaderKey('Vary','Accept'));
 
                                 return $format;
                             }
@@ -776,7 +798,7 @@ class Restler extends EventDispatcher
             );
         } else {
             // Tell cache content is based at Accept header
-            @header("Vary: Accept");
+            $this->headerData->set(new HeaderKey('Vary','Accept'));
             return $format;
         }
     }
@@ -1017,41 +1039,50 @@ class Restler extends EventDispatcher
             $cacheControl = str_replace('{expires}', $expires, $cacheControl);
             $expires = gmdate('D, d M Y H:i:s \G\M\T', time() + $expires);
         }
-        @header('Cache-Control: ' . $cacheControl);
-        @header('Expires: ' . $expires);
-        @header('X-Powered-By: Luracast Restler v' . Restler::VERSION);
+        $this->headerData->set(new HeaderKey('Cache-Control',$cacheControl));
+        $this->headerData->set(new HeaderKey('Expires',$expires));
+        $this->headerData->set(new HeaderKey('X-Powered-By','Luracast Restler v' . Restler::VERSION));
 
         if (Defaults::$crossOriginResourceSharing
             && isset($_SERVER['HTTP_ORIGIN'])
         ) {
-            header('Access-Control-Allow-Origin: ' .
-                (Defaults::$accessControlAllowOrigin == '*'
-                    ? $_SERVER['HTTP_ORIGIN']
-                    : Defaults::$accessControlAllowOrigin)
-            );
-            header('Access-Control-Allow-Credentials: true');
-            header('Access-Control-Max-Age: 86400');
+            $this->headerData->set(new HeaderKey('Access-Control-Allow-Origin',
+							(Defaults::$accessControlAllowOrigin == '*'
+							? $_SERVER['HTTP_ORIGIN']
+							: Defaults::$accessControlAllowOrigin))
+						);
+            $this->headerData->set(new HeaderKey('Access-Control-Allow-Credentials','true'));
+            $this->headerData->set(new HeaderKey('Access-Control-Max-Age','86400'));
         }
 
         $this->responseFormat->setCharset(Defaults::$charset);
         $charset = $this->responseFormat->getCharset()
             ? : Defaults::$charset;
 
-        @header('Content-Type: ' . (
-            Defaults::$useVendorMIMEVersioning
-                ? 'application/vnd.'
-                . Defaults::$apiVendor
-                . "-v{$this->requestedApiVersion}"
-                . '+' . $this->responseFormat->getExtension()
-                : $this->responseFormat->getMIME())
-            . '; charset=' . $charset
-        );
+        $this->headerData->set(new HeaderKey('Content-Type',(
+					Defaults::$useVendorMIMEVersioning
+						? 'application/vnd.'
+						. Defaults::$apiVendor
+						. "-v{$this->requestedApiVersion}"
+						. '+' . $this->responseFormat->getExtension()
+						: $this->responseFormat->getMIME())
+					. '; charset=' . $charset));
 
-        @header('Content-Language: ' . Defaults::$language);
+        $this->headerData->set(new HeaderKey('Content-Language',Defaults::$language));
 
         if (isset($this->apiMethodInfo->metadata['header'])) {
             foreach ($this->apiMethodInfo->metadata['header'] as $header)
-                @header($header, true);
+			{
+			    if(strpos(':',$header) !== false)
+				{
+                    $header = \explode(':',$header);
+                    $this->headerData->set(new HeaderKey($header[0],$header[1]),true);
+                    continue;
+				}
+
+                $this->headerData->set(new HeaderKey(null,$header),true);
+            }
+
         }
         $code = 200;
         if (!Defaults::$suppressResponseCode) {
@@ -1062,12 +1093,15 @@ class Restler extends EventDispatcher
             }
         }
         $this->responseCode = $code;
-        @header(
+        $this->headerData->set(new HeaderKey(null,
             "{$_SERVER['SERVER_PROTOCOL']} $code " .
             (isset(RestException::$codes[$code]) ? RestException::$codes[$code] : '')
-        );
+        ));
     }
 
+    /**
+     * @return \Luracast\Restler\Data\Response\Response
+     */
     protected function respond()
     {
         $this->dispatch('respond');
@@ -1082,14 +1116,18 @@ class Restler extends EventDispatcher
             $authString = count($this->authClasses)
                 ? Scope::get($this->authClasses[0])->__getWWWAuthenticateString()
                 : 'Unknown';
-            @header('WWW-Authenticate: ' . $authString, false);
+		        $this->headerData->set(new HeaderKey('WWW-Authenticate',$authString),false);
         }
-        echo $this->responseData;
-        $this->dispatch('complete');
-        exit;
+
+		$this->dispatch('complete');
+        return new \Luracast\Restler\Data\Response\Response($this->responseData,$this->headerData);
     }
 
-    protected function message(Exception $exception)
+	/**
+	 * @param Exception $exception
+	 * @return \Luracast\Restler\Data\Response\Response|null
+	 */
+	protected function message(Exception $exception)
     {
         $this->dispatch('message');
 
@@ -1128,7 +1166,7 @@ class Restler extends EventDispatcher
             $compose->message($exception),
             !$this->productionMode
         );
-        $this->respond();
+        return $this->respond();
     }
 
     /**
@@ -1209,7 +1247,7 @@ class Restler extends EventDispatcher
      *                                lowercase version of the class name when
      *                                not specified
      *
-     * @return null
+     * @return \Luracast\Restler\Data\Response\Response|null
      *
      * @throws Exception when supplied with invalid class name
      */
@@ -1294,8 +1332,9 @@ class Restler extends EventDispatcher
                 $e
             );
             $this->setSupportedFormats('JsonFormat');
-            $this->message($e);
+            return $this->message($e);
         }
+		    return null;
     }
 
     /**
