@@ -134,12 +134,17 @@ class Util
      *
      * @static
      *
+     * @param \Luracast\Restler\Data\Request\Request $request
      * @return string which will be one of the following
      *        [GET, POST, PUT, PATCH, DELETE]
      * @example GET
      */
-    public static function getRequestMethod()
+    public static function getRequestMethod(\Luracast\Restler\Data\Request\Request $request = null)
     {
+        if(!is_null($request))
+        {
+            return $request->getMethotd();
+        }
         $method = $_SERVER['REQUEST_METHOD'];
         if (isset($_SERVER['HTTP_X_HTTP_METHOD_OVERRIDE'])) {
             $method = $_SERVER['HTTP_X_HTTP_METHOD_OVERRIDE'];

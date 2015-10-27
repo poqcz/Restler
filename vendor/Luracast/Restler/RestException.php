@@ -59,6 +59,7 @@ class RestException extends Exception
         415 => 'Unsupported Media Type',
         416 => 'Requested Range Not Satisfiable',
         417 => 'Expectation Failed',
+        418 => 'Teapot',
         429 => 'Too Many Requests', //still in draft but used for rate limiting
         500 => 'Internal Server Error',
         501 => 'Not Implemented',

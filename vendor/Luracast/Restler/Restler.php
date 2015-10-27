@@ -6,6 +6,7 @@ use InvalidArgumentException;
 use Luracast\Restler\Data\ApiMethodInfo;
 use Luracast\Restler\Data\ValidationInfo;
 use Luracast\Restler\Data\Validator;
+use Luracast\Restler\Data\Response\HeaderKey;
 use Luracast\Restler\Format\iFormat;
 use Luracast\Restler\Format\iDecodeStream;
 use Luracast\Restler\Format\UrlEncodedFormat;
@@ -199,16 +200,23 @@ class Restler extends EventDispatcher
      */
     protected $responseData;
 
+    /** @var \Luracast\Restler\Data\Response\Header */
+    protected $headerData;
+
+    /** @var \Luracast\Restler\Data\Request\Request|null */
+    protected $requestFromConstruct;
+
     /**
      * Constructor
      *
-     * @param boolean $productionMode    When set to false, it will run in
+     * @param boolean $productionMode When set to false, it will run in
      *                                   debug mode and parse the class files
      *                                   every time to map it to the URL
      *
-     * @param bool    $refreshCache      will update the cache when set to true
+     * @param bool $refreshCache will update the cache when set to true
+     * @param \Luracast\Restler\Data\Request\Request|null $request
      */
-    public function __construct($productionMode = false, $refreshCache = false)
+    public function __construct($productionMode = false, $refreshCache = false,\Luracast\Restler\Data\Request\Request $request = null)
     {
         parent::__construct();
         $this->startTime = time();
@@ -225,6 +233,9 @@ class Restler extends EventDispatcher
         if ($productionMode && $refreshCache) {
             $this->cached = false;
         }
+
+        $this->headerData = new \Luracast\Restler\Data\Response\Header();
+        $this->requestFromConstruct = $request;
     }
 
     /**
@@ -233,6 +244,7 @@ class Restler extends EventDispatcher
      *
      * @throws Exception     when the api service class is missing
      * @throws RestException to send error response
+     * @return \Luracast\Restler\Data\Response\Response|null
      */
     public function handle()
     {
@@ -258,7 +270,11 @@ class Restler extends EventDispatcher
                     $this->responseFormat = $this->negotiateResponseFormat();
                 $this->route();
             } catch (Exception $e) {
-                $this->negotiate();
+                $response = $this->negotiate();
+                if(!is_null($response))
+                {
+                    return $response;
+                }
                 if (!$e instanceof RestException) {
                     $e = new RestException(
                         500,
@@ -269,7 +285,11 @@ class Restler extends EventDispatcher
                 }
                 throw $e;
             }
-            $this->negotiate();
+            $response = $this->negotiate();
+            if(!is_null($response))
+            {
+                return $response;
+            }
             $this->preAuthFilter();
             $this->authenticate();
             $this->postAuthFilter();
@@ -278,12 +298,12 @@ class Restler extends EventDispatcher
             $this->call();
             $this->compose();
             $this->postCall();
-            $this->respond();
+            return $this->respond();
         } catch (Exception $e) {
             try{
-                $this->message($e);
+                return $this->message($e);
             } catch (Exception $e2) {
-                $this->message($e2);
+                return $this->message($e2);
             }
         }
     }
@@ -307,7 +327,7 @@ class Restler extends EventDispatcher
             $this->setSupportedFormats('JsonFormat');
         }
         $this->url = $this->getPath();
-        $this->requestMethod = Util::getRequestMethod();
+        $this->requestMethod = Util::getRequestMethod($this->requestFromConstruct);
         $this->requestFormat = $this->getRequestFormat();
         $this->requestData = $this->getRequestData(false);
 
@@ -433,6 +453,11 @@ class Restler extends EventDispatcher
      */
     protected function getPath()
     {
+        if(!is_null($this->requestFromConstruct))
+        {
+            $this->requestedApiVersion = $this->apiMinimumVersion;
+            return $this->requestFromConstruct->getPath();
+        }
         // fix SCRIPT_NAME for PHP 5.4 built-in web server
         if (false === strpos($_SERVER['SCRIPT_NAME'], '.php'))
             $_SERVER['SCRIPT_NAME']
@@ -488,35 +513,65 @@ class Restler extends EventDispatcher
     protected function getRequestFormat()
     {
         $format = null ;
-        // check if client has sent any information on request format
-        if (
-            !empty($_SERVER['CONTENT_TYPE']) ||
-            (
-                !empty($_SERVER['HTTP_CONTENT_TYPE']) &&
-                $_SERVER['CONTENT_TYPE'] = $_SERVER['HTTP_CONTENT_TYPE']
-            )
-        ) {
-            $mime = $_SERVER['CONTENT_TYPE'];
-            if (false !== $pos = strpos($mime, ';')) {
-                $mime = substr($mime, 0, $pos);
+        if(!is_null($this->requestFromConstruct))
+        {
+            $mime = $this->requestFromConstruct->getHeader()->get('Content-Type');
+            if(!is_null($mime))
+            {
+                $mime = $mime->getValue();
+                if($mime == UrlEncodedFormat::MIME)
+                {
+                    $format = Scope::get('UrlEncodedFormat');
+                }
+                else
+                {
+                    if(array_key_exists($mime,$this->formatMap))
+                    {
+                        $format = Scope::get($this->formatMap[$mime]);
+                        $format->setMIME($mime);
+                    }
+                    else
+                    {
+                        throw new RestException(
+                            403,
+                            "Content type `$mime` is not supported."
+                        );
+                    }
+                }
             }
-            if ($mime == UrlEncodedFormat::MIME)
-                $format = Scope::get('UrlEncodedFormat');
-            elseif (isset($this->formatMap[$mime])) {
-                $format = Scope::get($this->formatMap[$mime]);
-                $format->setMIME($mime);
-            } elseif (!$this->requestFormatDiffered && isset($this->formatOverridesMap[$mime])) {
-                //if our api method is not using an @format comment
-                //to point to this $mime, we need to throw 403 as in below
-                //but since we don't know that yet, we need to defer that here
-                $format = Scope::get($this->formatOverridesMap[$mime]);
-                $format->setMIME($mime);
-                $this->requestFormatDiffered = true;
-            } else {
-                throw new RestException(
-                    403,
-                    "Content type `$mime` is not supported."
-                );
+        }
+        else
+        {
+            // check if client has sent any information on request format
+            if (
+                !empty($_SERVER['CONTENT_TYPE']) ||
+                (
+                    !empty($_SERVER['HTTP_CONTENT_TYPE']) &&
+                    $_SERVER['CONTENT_TYPE'] = $_SERVER['HTTP_CONTENT_TYPE']
+                )
+            ) {
+                $mime = $_SERVER['CONTENT_TYPE'];
+                if (false !== $pos = strpos($mime, ';')) {
+                    $mime = substr($mime, 0, $pos);
+                }
+                if ($mime == UrlEncodedFormat::MIME)
+                    $format = Scope::get('UrlEncodedFormat');
+                elseif (isset($this->formatMap[$mime])) {
+                    $format = Scope::get($this->formatMap[$mime]);
+                    $format->setMIME($mime);
+                } elseif (!$this->requestFormatDiffered && isset($this->formatOverridesMap[$mime])) {
+                    //if our api method is not using an @format comment
+                    //to point to this $mime, we need to throw 403 as in below
+                    //but since we don't know that yet, we need to defer that here
+                    $format = Scope::get($this->formatOverridesMap[$mime]);
+                    $format->setMIME($mime);
+                    $this->requestFormatDiffered = true;
+                } else {
+                    throw new RestException(
+                        403,
+                        "Content type `$mime` is not supported."
+                    );
+                }
             }
         }
         if(!$format){
@@ -546,7 +601,14 @@ class Restler extends EventDispatcher
      */
     public function getRequestData($includeQueryParameters = true)
     {
-        $get = UrlEncodedFormat::decoderTypeFix($_GET);
+        if(is_null($this->requestFromConstruct))
+        {
+            $get = UrlEncodedFormat::decoderTypeFix($_GET);
+        }
+        else
+        {
+            $get = UrlEncodedFormat::decoderTypeFix($this->requestFromConstruct->getQuery()->getAll());
+        }
         if ($this->requestMethod == 'PUT'
             || $this->requestMethod == 'PATCH'
             || $this->requestMethod == 'POST'
@@ -557,12 +619,19 @@ class Restler extends EventDispatcher
                     : $this->requestData;
             }
 
-            $stream = $this->getRequestStream();
-            if($stream === FALSE)
-                return array();
-            $r = $this->requestFormat instanceof iDecodeStream
-                ? $this->requestFormat->decodeStream($stream)
-                : $this->requestFormat->decode(stream_get_contents($stream));
+            if(is_null($this->requestFromConstruct))
+            {
+                $stream = $this->getRequestStream();
+                if($stream === FALSE)
+                    return array();
+                $r = $this->requestFormat instanceof iDecodeStream
+                    ? $this->requestFormat->decodeStream($stream)
+                    : $this->requestFormat->decode(stream_get_contents($stream));
+            }
+            else
+            {
+                $r = $this->requestFormat->decode($this->requestFromConstruct->getBody());
+            }
 
             $r = is_array($r)
                 ? array_merge($r, array(Defaults::$fullRequestDataName => $r))
@@ -587,7 +656,6 @@ class Restler extends EventDispatcher
         if (!Defaults::$smartParameterParsing) {
             $params = $params + array(Defaults::$fullRequestDataName => $params);
         }
-
         $this->apiMethodInfo = $o = Routes::find(
             $this->url, $this->requestMethod,
             $this->requestedApiVersion, $params
@@ -625,36 +693,80 @@ class Restler extends EventDispatcher
      *  - media type
      *  - charset
      *  - language
+     * @return \Luracast\Restler\Data\Response\Response|null
      */
     protected function negotiate()
     {
         $this->dispatch('negotiate');
-        $this->negotiateCORS();
+        $response = $this->negotiateCORS();
+        if(!is_null($response))
+        {
+            return $response;
+        }
         $this->responseFormat = $this->negotiateResponseFormat();
         $this->negotiateCharset();
         $this->negotiateLanguage();
+        return null;
     }
 
+    /**
+     * @return \Luracast\Restler\Data\Response\Response|null
+     */
     protected function negotiateCORS()
     {
         if (
             $this->requestMethod == 'OPTIONS'
             && Defaults::$crossOriginResourceSharing
         ) {
-            if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_METHOD']))
-                header('Access-Control-Allow-Methods: '
-                    . Defaults::$accessControlAllowMethods);
+            $access_control_request_methotd = null;
+            $access_control_request_headers = null;
+            $origin = null;
+            if(is_null($this->requestFromConstruct))
+            {
+                if(\array_key_exists('HTTP_ACCESS_CONTROL_REQUEST_METHOD',$_SERVER))
+                {
+                    $access_control_request_methotd = $_SERVER['HTTP_ACCESS_CONTROL_REQUEST_METHOD'];
+                }
+                if(\array_key_exists('HTTP_ACCESS_CONTROL_REQUEST_HEADERS',$_SERVER))
+                {
+                    $access_control_request_headers = $_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS'];
+                }
+                if(\array_key_exists('HTTP_ORIGIN',$_SERVER))
+                {
+                    $origin = $_SERVER['HTTP_ORIGIN'];
+                }
+            }
+            else
+            {
+                $access_control_request_methotd = $this->requestFromConstruct->getHeader()->get('Access-Control-Request-Methotd');
+                if(!is_null($access_control_request_methotd))
+                {
+                    $access_control_request_methotd = $access_control_request_methotd->getValue();
+                }
+                $access_control_request_headers = $this->requestFromConstruct->getHeader()->get('Access-Control-Request-Headers');
+                if(!is_null($access_control_request_headers))
+                {
+                    $access_control_request_headers = $access_control_request_headers->getValue();
+                }
+                $origin = $this->requestFromConstruct->getHeader()->get('Origin');
+                if(!is_null($origin))
+                {
+                    $origin = $origin->getValue();
+                }
+            }
 
-            if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']))
-                header('Access-Control-Allow-Headers: '
-                    . $_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']);
+            if (!is_null($access_control_request_methotd))
+                $this->headerData->set(new HeaderKey('Access-Control-Allow-Methods',Defaults::$accessControlAllowMethods));
 
-            header('Access-Control-Allow-Origin: ' .
-                (Defaults::$accessControlAllowOrigin == '*' ? $_SERVER['HTTP_ORIGIN'] : Defaults::$accessControlAllowOrigin));
-            header('Access-Control-Allow-Credentials: true');
+            if (!is_null($access_control_request_headers))
+                $this->headerData->set(new HeaderKey('Access-Control-Allow-Headers',$access_control_request_headers));
 
-            exit(0);
+            $this->headerData->set(new HeaderKey('Access-Control-Allow-Origin',(Defaults::$accessControlAllowOrigin == '*' ? $origin : Defaults::$accessControlAllowOrigin)));
+            $this->headerData->set(new HeaderKey('Access-Control-Allow-Credentials','true'));
+
+            return new \Luracast\Restler\Data\Response\Response('',$this->headerData);
         }
+        return null;
     }
 
     // ==================================================================
@@ -695,7 +807,7 @@ class Restler extends EventDispatcher
         $format = null;
         $extensions = explode(
             '.',
-            parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH)
+            (is_null($this->requestFromConstruct) ? parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) : $this->requestFromConstruct->getPath())
         );
         while ($extensions) {
             $extension = array_pop($extensions);
@@ -708,16 +820,32 @@ class Restler extends EventDispatcher
                 return $format;
             }
         }
+        $http_accept = null;
+        if(is_null($this->requestFromConstruct))
+        {
+            if(array_key_exists('HTTP_ACCEPT',$_SERVER))
+            {
+                $http_accept = $_SERVER['HTTP_ACCEPT'];
+            }
+        }
+        else
+        {
+            $http_accept = $this->requestFromConstruct->getHeader()->get('Accept');
+            if(!is_null($http_accept))
+            {
+                $http_accept = $http_accept->getValue();
+            }
+        }
         // check if client has sent list of accepted data formats
-        if (isset($_SERVER['HTTP_ACCEPT'])) {
-            $acceptList = Util::sortByPriority($_SERVER['HTTP_ACCEPT']);
+        if (!is_null($http_accept)) {
+            $acceptList = Util::sortByPriority($http_accept);
             foreach ($acceptList as $accept => $quality) {
                 if (isset($this->formatMap[$accept])) {
                     $format = Scope::get($this->formatMap[$accept]);
                     $format->setMIME($accept);
                     //echo "MIME $accept";
                     // Tell cache content is based on Accept header
-                    @header('Vary: Accept');
+                    $this->headerData->set(new HeaderKey('Vary','Accept'));
 
                     return $format;
                 } elseif (false !== ($index = strrpos($accept, '+'))) {
@@ -738,7 +866,7 @@ class Restler extends EventDispatcher
                                 $format->setExtension($extension);
                                 // echo "Extension $extension";
                                 Defaults::$useVendorMIMEVersioning = true;
-                                @header('Vary: Accept');
+                                $this->headerData->set(new HeaderKey('Vary','Accept'));
 
                                 return $format;
                             }
@@ -751,14 +879,14 @@ class Restler extends EventDispatcher
             // RFC 2616: If no Accept header field is
             // present, then it is assumed that the
             // client accepts all media types.
-            $_SERVER['HTTP_ACCEPT'] = '*/*';
+            $http_accept = '*/*';
         }
-        if (strpos($_SERVER['HTTP_ACCEPT'], '*') !== false) {
-            if (false !== strpos($_SERVER['HTTP_ACCEPT'], 'application/*')) {
+        if (strpos($http_accept, '*') !== false) {
+            if (false !== strpos($http_accept, 'application/*')) {
                 $format = Scope::get('JsonFormat');
-            } elseif (false !== strpos($_SERVER['HTTP_ACCEPT'], 'text/*')) {
+            } elseif (false !== strpos($http_accept, 'text/*')) {
                 $format = Scope::get('XmlFormat');
-            } elseif (false !== strpos($_SERVER['HTTP_ACCEPT'], '*/*')) {
+            } elseif (false !== strpos($http_accept, '*/*')) {
                 $format = Scope::get($this->formatMap['default']);
             }
         }
@@ -776,16 +904,32 @@ class Restler extends EventDispatcher
             );
         } else {
             // Tell cache content is based at Accept header
-            @header("Vary: Accept");
+            $this->headerData->set(new HeaderKey('Vary','Accept'));
             return $format;
         }
     }
 
     protected function negotiateCharset()
     {
-        if (isset($_SERVER['HTTP_ACCEPT_CHARSET'])) {
+        $accept_charset = null;
+        if(is_null($this->requestFromConstruct))
+        {
+            if(array_key_exists('HTTP_ACCEPT_CHARSET',$_SERVER))
+            {
+                $accept_charset = $_SERVER['HTTP_ACCEPT_CHARSET'];
+            }
+        }
+        else
+        {
+            $accept_charset = $this->requestFromConstruct->getHeader()->get('Accept-Charset');
+            if(!is_null($accept_charset))
+            {
+                $accept_charset = $accept_charset->getValue();
+            }
+        }
+        if (!is_null($accept_charset)) {
             $found = false;
-            $charList = Util::sortByPriority($_SERVER['HTTP_ACCEPT_CHARSET']);
+            $charList = Util::sortByPriority($accept_charset);
             foreach ($charList as $charset => $quality) {
                 if (in_array($charset, Defaults::$supportedCharsets)) {
                     $found = true;
@@ -794,7 +938,7 @@ class Restler extends EventDispatcher
                 }
             }
             if (!$found) {
-                if (strpos($_SERVER['HTTP_ACCEPT_CHARSET'], '*') !== false) {
+                if (strpos($accept_charset, '*') !== false) {
                     //use default charset
                 } else {
                     throw new RestException(
@@ -809,9 +953,26 @@ class Restler extends EventDispatcher
 
     protected function negotiateLanguage()
     {
-        if (isset($_SERVER['HTTP_ACCEPT_LANGUAGE'])) {
+        $accept_language = null;
+        if(is_null($this->requestFromConstruct))
+        {
+            if(array_key_exists('HTTP_ACCEPT_LANGUAGE',$_SERVER))
+            {
+                $accept_language = $_SERVER['HTTP_ACCEPT_LANGUAGE'];
+            }
+        }
+        else
+        {
+            $accept_language = $this->requestFromConstruct->getHeader()->get('Accept-Language');
+            if(!is_null($accept_language))
+            {
+                $accept_language->getValue();
+            }
+        }
+
+        if (!is_null($accept_language)) {
             $found = false;
-            $langList = Util::sortByPriority($_SERVER['HTTP_ACCEPT_LANGUAGE']);
+            $langList = Util::sortByPriority($accept_language);
             foreach ($langList as $lang => $quality) {
                 foreach (Defaults::$supportedLanguages as $supported) {
                     if (strcasecmp($supported, $lang) == 0) {
@@ -822,7 +983,7 @@ class Restler extends EventDispatcher
                 }
             }
             if (!$found) {
-                if (strpos($_SERVER['HTTP_ACCEPT_LANGUAGE'], '*') !== false) {
+                if (strpos($accept_language, '*') !== false) {
                     //use default language
                 } else {
                     //ignore
@@ -1017,41 +1178,67 @@ class Restler extends EventDispatcher
             $cacheControl = str_replace('{expires}', $expires, $cacheControl);
             $expires = gmdate('D, d M Y H:i:s \G\M\T', time() + $expires);
         }
-        @header('Cache-Control: ' . $cacheControl);
-        @header('Expires: ' . $expires);
-        @header('X-Powered-By: Luracast Restler v' . Restler::VERSION);
+        $this->headerData->set(new HeaderKey('Cache-Control',$cacheControl));
+        $this->headerData->set(new HeaderKey('Expires',$expires));
+        $this->headerData->set(new HeaderKey('X-Powered-By','Luracast Restler v' . Restler::VERSION));
+
+        $server_origin = null;
+        if(is_null($this->requestFromConstruct))
+        {
+            if(\array_key_exists('HTTP_ORIGIN',$_SERVER))
+            {
+                $server_origin = $_SERVER['HTTP_ORIGIN'];
+            }
+        }
+        else
+        {
+            $server_origin = $this->requestFromConstruct->getHeader()->get('Origin');
+            if(!is_null($server_origin))
+            {
+                $server_origin = $server_origin->getValue();
+            }
+        }
 
         if (Defaults::$crossOriginResourceSharing
-            && isset($_SERVER['HTTP_ORIGIN'])
+            && !is_null($server_origin)
         ) {
-            header('Access-Control-Allow-Origin: ' .
-                (Defaults::$accessControlAllowOrigin == '*'
-                    ? $_SERVER['HTTP_ORIGIN']
-                    : Defaults::$accessControlAllowOrigin)
-            );
-            header('Access-Control-Allow-Credentials: true');
-            header('Access-Control-Max-Age: 86400');
+            $this->headerData->set(new HeaderKey('Access-Control-Allow-Origin',
+							(Defaults::$accessControlAllowOrigin == '*'
+							? $server_origin
+							: Defaults::$accessControlAllowOrigin))
+						);
+            $this->headerData->set(new HeaderKey('Access-Control-Allow-Credentials','true'));
+            $this->headerData->set(new HeaderKey('Access-Control-Max-Age','86400'));
         }
 
         $this->responseFormat->setCharset(Defaults::$charset);
         $charset = $this->responseFormat->getCharset()
             ? : Defaults::$charset;
 
-        @header('Content-Type: ' . (
-            Defaults::$useVendorMIMEVersioning
-                ? 'application/vnd.'
-                . Defaults::$apiVendor
-                . "-v{$this->requestedApiVersion}"
-                . '+' . $this->responseFormat->getExtension()
-                : $this->responseFormat->getMIME())
-            . '; charset=' . $charset
-        );
+        $this->headerData->set(new HeaderKey('Content-Type',(
+					Defaults::$useVendorMIMEVersioning
+						? 'application/vnd.'
+						. Defaults::$apiVendor
+						. "-v{$this->requestedApiVersion}"
+						. '+' . $this->responseFormat->getExtension()
+						: $this->responseFormat->getMIME())
+					. '; charset=' . $charset));
 
-        @header('Content-Language: ' . Defaults::$language);
+        $this->headerData->set(new HeaderKey('Content-Language',Defaults::$language));
 
         if (isset($this->apiMethodInfo->metadata['header'])) {
             foreach ($this->apiMethodInfo->metadata['header'] as $header)
-                @header($header, true);
+			{
+			    if(strpos(':',$header) !== false)
+				{
+                    $header = \explode(':',$header);
+                    $this->headerData->set(new HeaderKey($header[0],$header[1]),true);
+                    continue;
+				}
+
+                $this->headerData->set(new HeaderKey(null,$header),true);
+            }
+
         }
         $code = 200;
         if (!Defaults::$suppressResponseCode) {
@@ -1062,12 +1249,17 @@ class Restler extends EventDispatcher
             }
         }
         $this->responseCode = $code;
-        @header(
-            "{$_SERVER['SERVER_PROTOCOL']} $code " .
+        $this->headerData->set(new HeaderKey(null,
+            (!is_null($this->requestFromConstruct)
+                ? $this->requestFromConstruct->getVersion()
+                : $_SERVER['SERVER_PROTOCOL']) ." $code " .
             (isset(RestException::$codes[$code]) ? RestException::$codes[$code] : '')
-        );
+        ));
     }
 
+    /**
+     * @return \Luracast\Restler\Data\Response\Response
+     */
     protected function respond()
     {
         $this->dispatch('respond');
@@ -1082,14 +1274,18 @@ class Restler extends EventDispatcher
             $authString = count($this->authClasses)
                 ? Scope::get($this->authClasses[0])->__getWWWAuthenticateString()
                 : 'Unknown';
-            @header('WWW-Authenticate: ' . $authString, false);
+		        $this->headerData->set(new HeaderKey('WWW-Authenticate',$authString),false);
         }
-        echo $this->responseData;
-        $this->dispatch('complete');
-        exit;
+
+		$this->dispatch('complete');
+        return new \Luracast\Restler\Data\Response\Response($this->responseData,$this->headerData);
     }
 
-    protected function message(Exception $exception)
+	/**
+	 * @param Exception $exception
+	 * @return \Luracast\Restler\Data\Response\Response|null
+	 */
+	protected function message(Exception $exception)
     {
         $this->dispatch('message');
 
@@ -1128,7 +1324,7 @@ class Restler extends EventDispatcher
             $compose->message($exception),
             !$this->productionMode
         );
-        $this->respond();
+        return $this->respond();
     }
 
     /**
@@ -1209,7 +1405,7 @@ class Restler extends EventDispatcher
      *                                lowercase version of the class name when
      *                                not specified
      *
-     * @return null
+     * @return \Luracast\Restler\Data\Response\Response|null
      *
      * @throws Exception when supplied with invalid class name
      */
@@ -1294,8 +1490,9 @@ class Restler extends EventDispatcher
                 $e
             );
             $this->setSupportedFormats('JsonFormat');
-            $this->message($e);
+            return $this->message($e);
         }
+		    return null;
     }
 
     /**
