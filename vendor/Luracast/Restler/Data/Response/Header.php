@@ -12,10 +12,16 @@ class Header
 	 * @var \Luracast\Restler\Data\Response\HeaderKey[]
 	 */
 	protected $_data;
+	/** @var int */
+	protected $_status_code;
+	/** @var string */
+	protected $_version;
 
 	public function __construct()
 	{
 		$this->_data = array();
+		$this->_status_code = 200;
+		$this->_version = 'HTTP/1.1';
 	}
 
 	/**
@@ -39,6 +45,22 @@ class Header
 	}
 
 	/**
+	 * @param int $status_code
+	 */
+	public function setStatusCode($status_code)
+	{
+		$this->_status_code = $status_code;
+	}
+
+	/**
+	 * @param string $version
+	 */
+	public function setVersion($version)
+	{
+		$this->_version = $version;
+	}
+
+	/**
 	 * @param string $key
 	 * @return \Luracast\Restler\Data\Response\HeaderKey|null
 	 */
@@ -55,6 +77,22 @@ class Header
 	}
 
 	/**
+	 * @return int
+	 */
+	public function getStatusCode()
+	{
+		return $this->_status_code;
+	}
+
+	/**
+	 * @return string
+	 */
+	public function getVersion()
+	{
+		return $this->_version;
+	}
+
+	/**
 	 * @return \Luracast\Restler\Data\Response\HeaderKey[]
 	 */
 	public function getAll()
@@ -65,9 +103,22 @@ class Header
 	/**
 	 * @return string
 	 */
+	public function firstLineHeader()
+	{
+		$string = $this->_version.' '.$this->_status_code.' ';
+		$string .= array_key_exists($this->_status_code,\Luracast\Restler\RestException::$codes)
+			? \Luracast\Restler\RestException::$codes[$this->_status_code]
+			: '' ;
+		$string .= "\r\n";
+		return $string;
+	}
+
+	/**
+	 * @return string
+	 */
 	public function __toString()
 	{
-		$string = '';
+		$string = $this->firstLineHeader();
 		foreach($this->getAll() as $header_key)
 		{
 			$string .= $header_key."\r\n";

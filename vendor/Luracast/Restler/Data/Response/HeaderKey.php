@@ -14,7 +14,7 @@ class HeaderKey
 	protected $_value;
 
 	/**
-	 * @param string|null $key
+	 * @param string $key
 	 * @param string $value
 	 */
 	function __construct($key, $value)
@@ -24,7 +24,7 @@ class HeaderKey
 	}
 
 	/**
-	 * @return string|null
+	 * @return string
 	 */
 	public function getKey()
 	{
