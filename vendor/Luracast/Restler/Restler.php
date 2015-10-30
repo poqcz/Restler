@@ -204,7 +204,7 @@ class Restler extends EventDispatcher
     protected $headerData;
 
     /** @var \Luracast\Restler\Data\Request\Request|null */
-    protected $requestFromConstruct;
+    protected $requestFromObject;
 
     /**
      * Constructor
@@ -214,9 +214,8 @@ class Restler extends EventDispatcher
      *                                   every time to map it to the URL
      *
      * @param bool $refreshCache will update the cache when set to true
-     * @param \Luracast\Restler\Data\Request\Request|null $request
      */
-    public function __construct($productionMode = false, $refreshCache = false,\Luracast\Restler\Data\Request\Request $request = null)
+    public function __construct($productionMode = false, $refreshCache = false)
     {
         parent::__construct();
         $this->startTime = time();
@@ -235,19 +234,20 @@ class Restler extends EventDispatcher
         }
 
         $this->headerData = new \Luracast\Restler\Data\Response\Header();
-        $this->requestFromConstruct = $request;
+        $this->requestFromObject = null;
     }
 
-    /**
-     * Main function for processing the api request
-     * and return the response
-     *
-     * @throws Exception     when the api service class is missing
-     * @throws RestException to send error response
-     * @return \Luracast\Restler\Data\Response\Response|null
-     */
-    public function handle()
+	/**
+	 * Main function for processing the api request
+	 * and return the response
+	 *
+	 * @param \Luracast\Restler\Data\Request\Request $request
+	 * @return \Luracast\Restler\Data\Response\Response|null
+	 */
+    public function handle(\Luracast\Restler\Data\Request\Request $request = null)
     {
+		$this->requestFromObject = $request;
+		$this->headerData = new \Luracast\Restler\Data\Response\Header();
         try {
             try {
                 try {
@@ -327,7 +327,7 @@ class Restler extends EventDispatcher
             $this->setSupportedFormats('JsonFormat');
         }
         $this->url = $this->getPath();
-        $this->requestMethod = Util::getRequestMethod($this->requestFromConstruct);
+        $this->requestMethod = Util::getRequestMethod($this->requestFromObject);
         $this->requestFormat = $this->getRequestFormat();
         $this->requestData = $this->getRequestData(false);
 
@@ -453,10 +453,10 @@ class Restler extends EventDispatcher
      */
     protected function getPath()
     {
-        if(!is_null($this->requestFromConstruct))
+        if(!is_null($this->requestFromObject))
         {
             $this->requestedApiVersion = $this->apiMinimumVersion;
-            return $this->requestFromConstruct->getPath();
+            return $this->requestFromObject->getPath();
         }
         // fix SCRIPT_NAME for PHP 5.4 built-in web server
         if (false === strpos($_SERVER['SCRIPT_NAME'], '.php'))
@@ -513,9 +513,9 @@ class Restler extends EventDispatcher
     protected function getRequestFormat()
     {
         $format = null ;
-        if(!is_null($this->requestFromConstruct))
+        if(!is_null($this->requestFromObject))
         {
-            $mime = $this->requestFromConstruct->getHeader()->get('Content-Type');
+            $mime = $this->requestFromObject->getHeader()->get('Content-Type');
             if(!is_null($mime))
             {
                 $mime = $mime->getValue();
@@ -601,13 +601,13 @@ class Restler extends EventDispatcher
      */
     public function getRequestData($includeQueryParameters = true)
     {
-        if(is_null($this->requestFromConstruct))
+        if(is_null($this->requestFromObject))
         {
             $get = UrlEncodedFormat::decoderTypeFix($_GET);
         }
         else
         {
-            $get = UrlEncodedFormat::decoderTypeFix($this->requestFromConstruct->getQuery()->getAll());
+            $get = UrlEncodedFormat::decoderTypeFix($this->requestFromObject->getQuery()->getAll());
         }
         if ($this->requestMethod == 'PUT'
             || $this->requestMethod == 'PATCH'
@@ -619,7 +619,7 @@ class Restler extends EventDispatcher
                     : $this->requestData;
             }
 
-            if(is_null($this->requestFromConstruct))
+            if(is_null($this->requestFromObject))
             {
                 $stream = $this->getRequestStream();
                 if($stream === FALSE)
@@ -630,7 +630,7 @@ class Restler extends EventDispatcher
             }
             else
             {
-                $r = $this->requestFormat->decode($this->requestFromConstruct->getBody());
+                $r = $this->requestFormat->decode($this->requestFromObject->getBody());
             }
 
             $r = is_array($r)
@@ -721,7 +721,7 @@ class Restler extends EventDispatcher
             $access_control_request_methotd = null;
             $access_control_request_headers = null;
             $origin = null;
-            if(is_null($this->requestFromConstruct))
+            if(is_null($this->requestFromObject))
             {
                 if(\array_key_exists('HTTP_ACCESS_CONTROL_REQUEST_METHOD',$_SERVER))
                 {
@@ -738,17 +738,17 @@ class Restler extends EventDispatcher
             }
             else
             {
-                $access_control_request_methotd = $this->requestFromConstruct->getHeader()->get('Access-Control-Request-Methotd');
+                $access_control_request_methotd = $this->requestFromObject->getHeader()->get('Access-Control-Request-Methotd');
                 if(!is_null($access_control_request_methotd))
                 {
                     $access_control_request_methotd = $access_control_request_methotd->getValue();
                 }
-                $access_control_request_headers = $this->requestFromConstruct->getHeader()->get('Access-Control-Request-Headers');
+                $access_control_request_headers = $this->requestFromObject->getHeader()->get('Access-Control-Request-Headers');
                 if(!is_null($access_control_request_headers))
                 {
                     $access_control_request_headers = $access_control_request_headers->getValue();
                 }
-                $origin = $this->requestFromConstruct->getHeader()->get('Origin');
+                $origin = $this->requestFromObject->getHeader()->get('Origin');
                 if(!is_null($origin))
                 {
                     $origin = $origin->getValue();
@@ -807,7 +807,7 @@ class Restler extends EventDispatcher
         $format = null;
         $extensions = explode(
             '.',
-            (is_null($this->requestFromConstruct) ? parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) : $this->requestFromConstruct->getPath())
+            (is_null($this->requestFromObject) ? parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) : $this->requestFromObject->getPath())
         );
         while ($extensions) {
             $extension = array_pop($extensions);
@@ -821,7 +821,7 @@ class Restler extends EventDispatcher
             }
         }
         $http_accept = null;
-        if(is_null($this->requestFromConstruct))
+        if(is_null($this->requestFromObject))
         {
             if(array_key_exists('HTTP_ACCEPT',$_SERVER))
             {
@@ -830,7 +830,7 @@ class Restler extends EventDispatcher
         }
         else
         {
-            $http_accept = $this->requestFromConstruct->getHeader()->get('Accept');
+            $http_accept = $this->requestFromObject->getHeader()->get('Accept');
             if(!is_null($http_accept))
             {
                 $http_accept = $http_accept->getValue();
@@ -912,7 +912,7 @@ class Restler extends EventDispatcher
     protected function negotiateCharset()
     {
         $accept_charset = null;
-        if(is_null($this->requestFromConstruct))
+        if(is_null($this->requestFromObject))
         {
             if(array_key_exists('HTTP_ACCEPT_CHARSET',$_SERVER))
             {
@@ -921,7 +921,7 @@ class Restler extends EventDispatcher
         }
         else
         {
-            $accept_charset = $this->requestFromConstruct->getHeader()->get('Accept-Charset');
+            $accept_charset = $this->requestFromObject->getHeader()->get('Accept-Charset');
             if(!is_null($accept_charset))
             {
                 $accept_charset = $accept_charset->getValue();
@@ -954,7 +954,7 @@ class Restler extends EventDispatcher
     protected function negotiateLanguage()
     {
         $accept_language = null;
-        if(is_null($this->requestFromConstruct))
+        if(is_null($this->requestFromObject))
         {
             if(array_key_exists('HTTP_ACCEPT_LANGUAGE',$_SERVER))
             {
@@ -963,7 +963,7 @@ class Restler extends EventDispatcher
         }
         else
         {
-            $accept_language = $this->requestFromConstruct->getHeader()->get('Accept-Language');
+            $accept_language = $this->requestFromObject->getHeader()->get('Accept-Language');
             if(!is_null($accept_language))
             {
                 $accept_language = $accept_language->getValue();
@@ -1183,7 +1183,7 @@ class Restler extends EventDispatcher
         $this->headerData->set(new HeaderKey('X-Powered-By','Luracast Restler v' . Restler::VERSION));
 
         $server_origin = null;
-        if(is_null($this->requestFromConstruct))
+        if(is_null($this->requestFromObject))
         {
             if(\array_key_exists('HTTP_ORIGIN',$_SERVER))
             {
@@ -1192,7 +1192,7 @@ class Restler extends EventDispatcher
         }
         else
         {
-            $server_origin = $this->requestFromConstruct->getHeader()->get('Origin');
+            $server_origin = $this->requestFromObject->getHeader()->get('Origin');
             if(!is_null($server_origin))
             {
                 $server_origin = $server_origin->getValue();
@@ -1249,12 +1249,17 @@ class Restler extends EventDispatcher
             }
         }
         $this->responseCode = $code;
-        $this->headerData->set(new HeaderKey(null,
-            (!is_null($this->requestFromConstruct)
-                ? $this->requestFromConstruct->getVersion()
-                : $_SERVER['SERVER_PROTOCOL']) ." $code " .
-            (isset(RestException::$codes[$code]) ? RestException::$codes[$code] : '')
-        ));
+
+		if(is_null($this->requestFromObject))
+		{
+			$this->headerData->setVersion($_SERVER['SERVER_PROTOCOL']);
+		}
+		else
+		{
+			$this->headerData->setVersion($this->requestFromObject->getVersion());
+		}
+
+		$this->headerData->setStatusCode($code);
     }
 
     /**
