@@ -966,7 +966,7 @@ class Restler extends EventDispatcher
             $accept_language = $this->requestFromConstruct->getHeader()->get('Accept-Language');
             if(!is_null($accept_language))
             {
-                $accept_language->getValue();
+                $accept_language = $accept_language->getValue();
             }
         }
 
