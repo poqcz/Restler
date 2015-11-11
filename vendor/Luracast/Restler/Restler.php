@@ -248,6 +248,7 @@ class Restler extends EventDispatcher
     {
 		$this->requestFromObject = $request;
 		$this->headerData = new \Luracast\Restler\Data\Response\Header();
+		$this->requestData = array();
         try {
             try {
                 try {
