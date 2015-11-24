@@ -482,7 +482,7 @@ class Restler extends EventDispatcher
         $this->baseUrl = rtrim($baseUrl
             . substr($fullPath, 0, strlen($fullPath) - strlen($path)), '/');
 
-        $path = rtrim(strtok($path, '?'), '/'); //remove query string and trailing slash if found any
+        $path = strtok($path, '?'); //remove query string if found any
         $path = str_replace(
             array_merge(
                 $this->formatMap['extensions'],
