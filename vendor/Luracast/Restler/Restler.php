@@ -514,67 +514,55 @@ class Restler extends EventDispatcher
     protected function getRequestFormat()
     {
         $format = null ;
-        if(!is_null($this->requestFromObject))
-        {
-            $mime = $this->requestFromObject->getHeader()->get('Content-Type');
-            if(!is_null($mime))
-            {
-                $mime = $mime->getValue();
-                if($mime == UrlEncodedFormat::MIME)
-                {
-                    $format = Scope::get('UrlEncodedFormat');
-                }
-                else
-                {
-                    if(array_key_exists($mime,$this->formatMap))
-                    {
-                        $format = Scope::get($this->formatMap[$mime]);
-                        $format->setMIME($mime);
-                    }
-                    else
-                    {
-                        throw new RestException(
-                            403,
-                            "Content type `$mime` is not supported."
-                        );
-                    }
-                }
-            }
-        }
-        else
-        {
-            // check if client has sent any information on request format
-            if (
-                !empty($_SERVER['CONTENT_TYPE']) ||
-                (
-                    !empty($_SERVER['HTTP_CONTENT_TYPE']) &&
-                    $_SERVER['CONTENT_TYPE'] = $_SERVER['HTTP_CONTENT_TYPE']
-                )
-            ) {
-                $mime = $_SERVER['CONTENT_TYPE'];
-                if (false !== $pos = strpos($mime, ';')) {
-                    $mime = substr($mime, 0, $pos);
-                }
-                if ($mime == UrlEncodedFormat::MIME)
-                    $format = Scope::get('UrlEncodedFormat');
-                elseif (isset($this->formatMap[$mime])) {
-                    $format = Scope::get($this->formatMap[$mime]);
-                    $format->setMIME($mime);
-                } elseif (!$this->requestFormatDiffered && isset($this->formatOverridesMap[$mime])) {
-                    //if our api method is not using an @format comment
-                    //to point to this $mime, we need to throw 403 as in below
-                    //but since we don't know that yet, we need to defer that here
-                    $format = Scope::get($this->formatOverridesMap[$mime]);
-                    $format->setMIME($mime);
-                    $this->requestFormatDiffered = true;
-                } else {
-                    throw new RestException(
-                        403,
-                        "Content type `$mime` is not supported."
-                    );
-                }
-            }
-        }
+        $content_type = null;
+
+		if(!is_null($this->requestFromObject))
+		{
+			$content_type = $this->requestFromObject->getHeader()->get('Content-Type');
+			if(!is_null($content_type))
+			{
+				$content_type->getValue();
+			}
+		}
+		else
+		{
+			// check if client has sent any information on request format
+			if (
+				!empty($_SERVER['CONTENT_TYPE']) ||
+				(
+					!empty($_SERVER['HTTP_CONTENT_TYPE']) &&
+					$_SERVER['CONTENT_TYPE'] = $_SERVER['HTTP_CONTENT_TYPE']
+				)
+			) {
+				$content_type = $_SERVER['CONTENT_TYPE'];
+			}
+		}
+
+		if(!is_null($content_type))
+		{
+			$mime = $content_type;
+			if (false !== $pos = strpos($mime, ';')) {
+				$mime = substr($mime, 0, $pos);
+			}
+			if ($mime == UrlEncodedFormat::MIME)
+				$format = Scope::get('UrlEncodedFormat');
+			elseif (isset($this->formatMap[$mime])) {
+				$format = Scope::get($this->formatMap[$mime]);
+				$format->setMIME($mime);
+			} elseif (!$this->requestFormatDiffered && isset($this->formatOverridesMap[$mime])) {
+				//if our api method is not using an @format comment
+				//to point to this $mime, we need to throw 403 as in below
+				//but since we don't know that yet, we need to defer that here
+				$format = Scope::get($this->formatOverridesMap[$mime]);
+				$format->setMIME($mime);
+				$this->requestFormatDiffered = true;
+			} else {
+				throw new RestException(
+					403,
+					"Content type `$mime` is not supported."
+				);
+			}
+		}
         if(!$format){
             $format = Scope::get($this->formatMap['default']);
         }
