@@ -521,7 +521,7 @@ class Restler extends EventDispatcher
 			$content_type = $this->requestFromObject->getHeader()->get('Content-Type');
 			if(!is_null($content_type))
 			{
-				$content_type->getValue();
+				$content_type = $content_type->getValue();
 			}
 		}
 		else
