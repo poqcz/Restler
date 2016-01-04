@@ -206,32 +206,41 @@ class Restler extends EventDispatcher
     /** @var \Luracast\Restler\Data\Request\Request|null */
     protected $requestFromObject;
 
-    /**
-     * Constructor
-     *
-     * @param boolean $productionMode When set to false, it will run in
-     *                                   debug mode and parse the class files
-     *                                   every time to map it to the URL
-     *
-     * @param bool $refreshCache will update the cache when set to true
-     */
-    public function __construct($productionMode = false, $refreshCache = false)
+	/** @var bool */
+	protected $enableRouteCache;
+
+	/**
+	 * Constructor
+	 *
+	 * @param boolean $productionMode When set to false, it will run in
+	 *                                   debug mode and parse the class files
+	 *                                   every time to map it to the URL
+	 *
+	 * @param bool $refreshCache will update the cache when set to true
+	 * @param bool $enableRouteCache
+	 */
+    public function __construct($productionMode = false, $refreshCache = false,$enableRouteCache = false)
     {
         parent::__construct();
         $this->startTime = time();
         Util::$restler = $this;
         Scope::set('Restler', $this);
         $this->productionMode = $productionMode;
+		$this->enableRouteCache = $enableRouteCache;
         if (is_null(Defaults::$cacheDirectory)) {
             Defaults::$cacheDirectory = dirname($_SERVER['SCRIPT_FILENAME']) .
                 DIRECTORY_SEPARATOR . 'cache';
         }
-        $this->cache = new Defaults::$cacheClass();
-        $this->refreshCache = $refreshCache;
-        // use this to rebuild cache every time in production mode
-        if ($productionMode && $refreshCache) {
-            $this->cached = false;
-        }
+
+		if($enableRouteCache)
+		{
+        	$this->cache = new Defaults::$cacheClass();
+        	$this->refreshCache = $refreshCache;
+        	// use this to rebuild cache every time in production mode
+        	if ($productionMode && $refreshCache) {
+        		$this->cached = false;
+        	}
+		}
 
         $this->headerData = new \Luracast\Restler\Data\Response\Header();
         $this->requestFromObject = null;
@@ -1406,7 +1415,7 @@ class Restler extends EventDispatcher
     public function addAPIClass($className, $resourcePath = null)
     {
         try{
-            if ($this->productionMode && is_null($this->cached)) {
+            if ($this->productionMode && is_null($this->cached) && $this->enableRouteCache) {
                 $routes = $this->cache->get('routes');
                 if (isset($routes) && is_array($routes)) {
                     $this->apiVersionMap = $routes['apiVersionMap'];
@@ -1580,19 +1589,24 @@ class Restler extends EventDispatcher
         return null;
     }
 
-    /**
-     * Store the url map cache if needed
-     */
     public function __destruct()
     {
-        if ($this->productionMode && !$this->cached) {
-            $this->cache->set(
-                'routes',
-                Routes::toArray() +
-                array('apiVersionMap' => $this->apiVersionMap)
-            );
-        }
+		$this->saveRoutesToCache();
     }
+
+	/**
+	 * Store the url map cache if needed
+	 */
+	protected function saveRoutesToCache()
+	{
+		if ($this->productionMode && !$this->cached && $this->enableRouteCache) {
+			$this->cache->set(
+				'routes',
+				Routes::toArray() +
+				array('apiVersionMap' => $this->apiVersionMap)
+			);
+		}
+	}
 
     /**
      * pre call
