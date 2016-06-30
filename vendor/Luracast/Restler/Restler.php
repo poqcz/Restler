@@ -1297,9 +1297,9 @@ class Restler extends EventDispatcher
 						$e = $this->exception->getPrevious();
 					}
 				}
-			}
 
-			$errorMessage = $e->getMessage();
+				$errorMessage = $e->getMessage();
+			}
 		}
 
         return new \Luracast\Restler\Data\Response\Response($this->responseData,$this->headerData,$errorMessage);
