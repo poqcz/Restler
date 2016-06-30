@@ -15,14 +15,19 @@ class Response
      */
     protected $_header;
 
-    /**
-     * @param mixed $data
-     * @param \Luracast\Restler\Data\Response\Header $header
-     */
-    function __construct($data, $header)
+	/** @var  string|null */
+	protected $_errorMessage;
+
+	/**
+	 * @param mixed $data
+	 * @param \Luracast\Restler\Data\Response\Header $header
+	 * @param null|string $errorMessage
+	 */
+    function __construct($data, $header, $errorMessage = null)
     {
         $this->_data = $data;
         $this->_header = $header;
+		$this->_errorMessage = $errorMessage;
     }
 
     /**
@@ -40,5 +45,21 @@ class Response
     {
         return $this->_header;
     }
+
+	/**
+	 * @return null|string
+	 */
+	public function getErrorMessage()
+	{
+		return $this->_errorMessage;
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function isError()
+	{
+		return !is_null($this->_errorMessage);
+	}
 
 } 

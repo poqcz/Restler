@@ -1281,7 +1281,24 @@ class Restler extends EventDispatcher
         }
 
 		$this->dispatch('complete');
-        return new \Luracast\Restler\Data\Response\Response($this->responseData,$this->headerData);
+
+		$errorMessage = null;
+
+		if(!is_null($this->exception))
+		{
+			$e = $this->exception;
+			if(is_null($e->getMessage()))
+			{
+				if(!is_null($this->exception->getPrevious()))
+				{
+					$e = $this->exception->getPrevious();
+				}
+			}
+
+			$errorMessage = $e->getMessage();
+		}
+
+        return new \Luracast\Restler\Data\Response\Response($this->responseData,$this->headerData,$errorMessage);
     }
 
 	/**
