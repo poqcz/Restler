@@ -1287,11 +1287,15 @@ class Restler extends EventDispatcher
 		if(!is_null($this->exception))
 		{
 			$e = $this->exception;
-			if(is_null($e->getMessage()))
+
+			if($e->getCode() >= 500)
 			{
-				if(!is_null($this->exception->getPrevious()))
+				if($e->getMessage() == '')
 				{
-					$e = $this->exception->getPrevious();
+					if(!is_null($this->exception->getPrevious()))
+					{
+						$e = $this->exception->getPrevious();
+					}
 				}
 			}
 
