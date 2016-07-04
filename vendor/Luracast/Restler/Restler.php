@@ -247,6 +247,16 @@ class Restler extends EventDispatcher
     }
 
 	/**
+	 * method delete data from previous request
+	 */
+	protected function clearMemory()
+	{
+		$this->headerData = new \Luracast\Restler\Data\Response\Header();
+		$this->requestData = array();
+		$this->exception = null;
+	}
+
+	/**
 	 * Main function for processing the api request
 	 * and return the response
 	 *
@@ -256,8 +266,7 @@ class Restler extends EventDispatcher
     public function handle(\Luracast\Restler\Data\Request\Request $request = null)
     {
 		$this->requestFromObject = $request;
-		$this->headerData = new \Luracast\Restler\Data\Response\Header();
-		$this->requestData = array();
+		$this->clearMemory();
         try {
             try {
                 try {
@@ -1282,7 +1291,7 @@ class Restler extends EventDispatcher
 
 		$this->dispatch('complete');
 
-		$errorMessage = null;
+		$errorException = null;
 
 		if(!is_null($this->exception))
 		{
@@ -1298,11 +1307,11 @@ class Restler extends EventDispatcher
 					}
 				}
 
-				$errorMessage = $e->getMessage();
+				$errorException = $e;
 			}
 		}
 
-        return new \Luracast\Restler\Data\Response\Response($this->responseData,$this->headerData,$errorMessage);
+        return new \Luracast\Restler\Data\Response\Response($this->responseData,$this->headerData,$errorException);
     }
 
 	/**
