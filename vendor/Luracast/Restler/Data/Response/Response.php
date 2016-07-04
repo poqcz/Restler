@@ -49,7 +49,7 @@ class Response
 	/**
 	 * @return null|\Exception
 	 */
-	public function getErrorMessage()
+	public function getErrorException()
 	{
 		return $this->_errorException;
 	}
