@@ -19,6 +19,14 @@ class Header
         $this->keys = $keys;
     }
 
+	/**
+	 * @return \Luracast\Restler\Data\Request\HeaderKey[]
+	 */
+	public function getAll()
+	{
+		return $this->keys;
+	}
+
     /**
      * @param string $string_key
      * @return \Luracast\Restler\Data\Request\HeaderKey|null
